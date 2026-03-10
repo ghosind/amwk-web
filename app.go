@@ -60,7 +60,8 @@ func (app *Application) Start() error {
 	}()
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(sig)
 	select {
 	case <-sig:
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
