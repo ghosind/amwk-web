@@ -7,9 +7,22 @@ import (
 	"testing"
 )
 
+func TestResponse_Application(t *testing.T) {
+	app := Default()
+	resp := newResponse(app, httptest.NewRecorder())
+	if resp.Application() != app {
+		t.Fatalf("expected Application() to return the original application instance")
+	}
+
+	resp = newResponse(nil, httptest.NewRecorder())
+	if resp.Application() != nil {
+		t.Fatalf("expected Application() to return nil when no application is associated")
+	}
+}
+
 func TestNewResponse_Headers(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 
 	resp.AddHeader("A", "1")
 	resp.AddHeader("A", "2")
@@ -51,7 +64,7 @@ func TestNewResponse_Headers(t *testing.T) {
 
 func TestResponse_Write(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 
 	n, err := resp.Write([]byte("hello"))
 	if err != nil || n != 5 {
@@ -80,7 +93,7 @@ func TestResponse_Write(t *testing.T) {
 
 func TestResponse_Status(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 
 	resp.Status(201)
 	if resp.StatusCode() != 201 {
@@ -96,7 +109,7 @@ func TestResponse_Status(t *testing.T) {
 
 func TestResponse_Response(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 	if resp.Response() == nil {
 		t.Fatalf("expected underlying response writer non-nil")
 	}

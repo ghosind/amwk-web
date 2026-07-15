@@ -32,7 +32,7 @@ func defaultApp() *Application {
 }
 
 // Default returns a default application instance with default settings.
-func Default() core.Application {
+func Default() *Application {
 	app := defaultApp()
 
 	return app
@@ -40,7 +40,7 @@ func Default() core.Application {
 
 // New returns a new application instance with default settings. It allows for further
 // customization before starting the server.
-func New(opts ...Option) core.Application {
+func New(opts ...Option) *Application {
 	app := defaultApp()
 
 	for _, opt := range opts {
@@ -99,12 +99,23 @@ func (app *Application) Shutdown(ctx context.Context) error {
 
 // ServeHTTP implements the http.Handler interface to handle incoming HTTP requests.
 func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	req := newRequest(r)
-	resp := newResponse(w)
+	req := newRequest(app, r)
+	resp := newResponse(app, w)
 	ctx := engine.NewContext(app, req, resp)
 	ctx.Use(app.handlers...)
 
 	ctx.Next()
 
 	resp.send()
+}
+
+// Address returns the address the application is listening on.
+func (app *Application) Address() string {
+	return app.addr
+}
+
+// SetAddress sets the address for the application to listen on. Please call this method before
+// starting the application server.
+func (app *Application) SetAddress(addr string) {
+	app.addr = addr
 }

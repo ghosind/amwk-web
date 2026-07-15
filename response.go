@@ -2,25 +2,38 @@ package web
 
 import (
 	"net/http"
+
+	"github.com/go-amwk/core"
 )
 
 type Response struct {
+	app        *Application
 	rw         http.ResponseWriter
 	statusCode int
 	headers    http.Header
 	body       []byte
 }
 
-// newResponse creates a new Response instance with the given http.ResponseWriter. It initializes
-// the headers and body fields to empty values.
-func newResponse(rw http.ResponseWriter) *Response {
+// newResponse creates a new Response instance with application context and http.ResponseWriter.
+// It initializes the headers and body buffer for the response.
+func newResponse(app *Application, rw http.ResponseWriter) *Response {
 	resp := &Response{
+		app:     app,
 		rw:      rw,
 		headers: make(http.Header),
 		body:    make([]byte, 0),
 	}
 
 	return resp
+}
+
+// Application returns the Application instance associated with this Response. This allows you to
+// access the application context and its settings from within the response handling logic.
+func (resp *Response) Application() core.Application {
+	if resp.app == nil {
+		return nil
+	}
+	return resp.app
 }
 
 // AddHeader adds a header field with the specified key and value to the response. If the header

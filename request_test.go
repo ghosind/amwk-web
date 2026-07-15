@@ -9,11 +9,25 @@ import (
 	"testing"
 )
 
+func TestRequest_Application(t *testing.T) {
+	app := Default()
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	r := newRequest(app, req)
+	if r.Application() != app {
+		t.Fatalf("expected Application() to return the original application instance")
+	}
+
+	r = newRequest(nil, req)
+	if r.Application() != nil {
+		t.Fatalf("expected Application() to return nil when no application is associated")
+	}
+}
+
 func TestRequest_Body(t *testing.T) {
 	body := bytes.NewReader([]byte("hello world"))
 	req := httptest.NewRequest(http.MethodPost, "http://example.test/", body)
 
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	rc, err := r.Body()
 	if err != nil {
@@ -27,7 +41,7 @@ func TestRequest_Body(t *testing.T) {
 
 func TestRequest_ClientIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	ip := r.ClientIP()
 	if ip != "192.0.2.1:1234" {
@@ -38,7 +52,7 @@ func TestRequest_ClientIP(t *testing.T) {
 func TestRequest_ContentLength(t *testing.T) {
 	body := bytes.NewReader([]byte("data"))
 	req := httptest.NewRequest(http.MethodPost, "http://example.test/", body)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	expectLen := int64(len("data"))
 	if r.ContentLength() != expectLen {
@@ -50,7 +64,7 @@ func TestRequest_Cookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "abc123"})
 
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	cookie, err := r.Cookie("session")
 	if err != nil {
@@ -66,7 +80,7 @@ func TestRequest_Cookies(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "a", Value: "1"})
 	req.AddCookie(&http.Cookie{Name: "b", Value: "2"})
 
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	cookies := r.Cookies()
 	if len(cookies) != 2 {
@@ -84,7 +98,7 @@ func TestRequest_Context(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	ctx := req.Context()
 
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	if !reflect.DeepEqual(r.Context(), ctx) {
 		t.Fatalf("expected Context to match request context")
@@ -97,7 +111,7 @@ func TestRequest_Headers(t *testing.T) {
 	req.Header.Add("X-Test", "v2")
 	req.Header.Set("X-Another", "v3")
 
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	if r.Header("X-Test") != "v1" {
 		t.Fatalf("expected Header 'X-Test' to be 'v1', got %v", r.Header("X-Test"))
@@ -129,7 +143,7 @@ func TestRequest_Headers(t *testing.T) {
 
 func TestRequest_Method_Protocol_Path(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://example.test/test", nil)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	if r.Method() != http.MethodPost {
 		t.Fatalf("expected method POST, got %v", r.Method())
@@ -144,7 +158,7 @@ func TestRequest_Method_Protocol_Path(t *testing.T) {
 
 func TestRequest_PathValue(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	val := r.PathValue("id")
 	if val != "" {
@@ -160,7 +174,7 @@ func TestRequest_PathValue(t *testing.T) {
 
 func TestRequest_Resource(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	if r.Resource() != "" {
 		t.Fatalf("expected empty string for resource, got %v", r.Resource())
@@ -173,7 +187,7 @@ func TestRequest_Resource(t *testing.T) {
 
 func TestRequest_Queries(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/search?q=go&q=web&lang=en", nil)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	if r.Query("q") != "go" {
 		t.Fatalf("expected query 'q' to be 'go', got %v", r.Query("q"))
@@ -215,7 +229,7 @@ func TestRequest_Queries(t *testing.T) {
 
 func TestRequest_Request(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
-	r := newRequest(req)
+	r := newRequest(nil, req)
 
 	if r.Request() == nil {
 		t.Fatalf("expected underlying http.Request non-nil")

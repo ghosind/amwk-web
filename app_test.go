@@ -15,21 +15,15 @@ func TestDefaultAndNew(t *testing.T) {
 	if d == nil {
 		t.Fatalf("Default returned nil")
 	}
-	if _, ok := d.(*Application); !ok {
-		t.Fatalf("Default did not return *Application")
-	}
 
 	n := New(WithAddress(":0"))
 	if n == nil {
 		t.Fatalf("New returned nil")
 	}
-	if _, ok := n.(*Application); !ok {
-		t.Fatalf("New did not return *Application")
-	}
 }
 
 func TestApplication_Start(t *testing.T) {
-	app := New(WithAddress(":0")).(*Application)
+	app := New(WithAddress(":0"))
 
 	done := make(chan error, 1)
 	go func() {
@@ -53,10 +47,10 @@ func TestApplication_Start(t *testing.T) {
 }
 
 func TestApplication_Use(t *testing.T) {
-	app := New().(*Application)
+	app := New()
 
 	ret := app.Use(func(c core.Context) error { return nil })
-	if ret != app {
+	if ret.(*Application) != app {
 		t.Fatalf("Use did not return the application instance")
 	}
 
@@ -73,7 +67,7 @@ func TestApplication_Use(t *testing.T) {
 }
 
 func TestApplication_Close(t *testing.T) {
-	app := New().(*Application)
+	app := New()
 
 	app.server = nil
 	if err := app.Close(); err != nil {
@@ -89,7 +83,7 @@ func TestApplication_Close(t *testing.T) {
 }
 
 func TestApplication_Shutdown(t *testing.T) {
-	app := New().(*Application)
+	app := New()
 
 	app.server = nil
 	if err := app.Shutdown(context.Background()); err != nil {
@@ -105,7 +99,7 @@ func TestApplication_Shutdown(t *testing.T) {
 }
 
 func TestApplication_ServeHTTP(t *testing.T) {
-	app := New().(*Application)
+	app := New()
 
 	app.Use(func(c core.Context) error {
 		c.SetHeader("X-Test", "v")
@@ -126,5 +120,17 @@ func TestApplication_ServeHTTP(t *testing.T) {
 	}
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+}
+
+func TestApplication_Address(t *testing.T) {
+	app := New(WithAddress(":8080"))
+	if app.Address() != ":8080" {
+		t.Fatalf("expected address ':8080', got %v", app.Address())
+	}
+
+	app.SetAddress(":9090")
+	if app.Address() != ":9090" {
+		t.Fatalf("expected address ':9090', got %v", app.Address())
 	}
 }

@@ -5,22 +5,36 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/go-amwk/core"
 )
 
 // Request represents an HTTP request received by the application.
 type Request struct {
 	resource string
 
+	app *Application
 	req *http.Request
 }
 
-// newRequest creates a new Request instance from the given http.Request.
-func newRequest(r *http.Request) *Request {
+// newRequest creates a new Request instance from the application context and the underlying
+// http.Request.
+func newRequest(app *Application, r *http.Request) *Request {
 	req := &Request{
+		app: app,
 		req: r,
 	}
 
 	return req
+}
+
+// Application returns the Application instance associated with this Request. This allows you to
+// access the application context and its settings from within the request handling logic.
+func (req *Request) Application() core.Application {
+	if req.app == nil {
+		return nil
+	}
+	return req.app
 }
 
 // Body returns the request body as a readable stream.
