@@ -6,13 +6,16 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"github.com/go-amwk/core"
 )
 
 // Request represents an HTTP request received by the application.
 type Request struct {
-	resource string
+	resource  string
+	queries   url.Values
+	queryOnce sync.Once
 
 	app *Application
 	req *http.Request
@@ -141,27 +144,30 @@ func (req *Request) SetResource(resource string) {
 // Query returns the value of the specified query parameter from the request URL. If the parameter
 // is not present, it returns an empty string.
 func (req *Request) Query(name string) string {
-	return req.req.URL.Query().Get(name)
+	queries := req.getQueries()
+	return queries.Get(name)
 }
 
 // QueryValues returns all values associated with the specified query parameter from the request
 // URL. If the parameter is not present, it returns an empty slice.
 func (req *Request) QueryValues(name string) []string {
-	return req.req.URL.Query()[name]
+	queries := req.getQueries()
+	return queries[name]
 }
 
 // Queries returns all query parameters from the request URL as a url.Values map, where the keys
 // are the parameter names and the values are slices of parameter values. If there are no query
 // parameters, it returns an empty map.
 func (req *Request) Queries() url.Values {
+	queries := req.getQueries()
 	// Make a copy of the query parameters to avoid modifying the original request URL query
 	// parameters
-	queries := make(url.Values)
-	for key, values := range req.req.URL.Query() {
-		queries[key] = append(queries[key], values...)
+	copiedQueries := make(url.Values)
+	for key, values := range queries {
+		copiedQueries[key] = append(copiedQueries[key], values...)
 	}
 
-	return queries
+	return copiedQueries
 }
 
 // Request returns the underlying http.Request associated with this Request. This can be used to
@@ -169,4 +175,14 @@ func (req *Request) Queries() url.Values {
 // exposed through the Request interface.
 func (req *Request) Request() any {
 	return req.req
+}
+
+// getQueries retrieves the query parameters from the request URL. It uses sync.Once to ensure that
+// the query parameters are only parsed once, even if this method is called multiple times. The
+// parsed query parameters are cached in the Request struct for future use.
+func (req *Request) getQueries() url.Values {
+	req.queryOnce.Do(func() {
+		req.queries = req.req.URL.Query()
+	})
+	return req.queries
 }
