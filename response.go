@@ -1,17 +1,20 @@
 package web
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 
 	"github.com/go-amwk/core"
 )
 
 type Response struct {
-	app        *Application
-	rw         http.ResponseWriter
-	statusCode int
-	headers    http.Header
-	body       []byte
+	app          *Application
+	rw           http.ResponseWriter
+	statusCode   int
+	headers      http.Header
+	body         *bytes.Buffer
+	maxBodyBytes int64
 }
 
 // newResponse creates a new Response instance with application context and http.ResponseWriter.
@@ -21,7 +24,13 @@ func newResponse(app *Application, rw http.ResponseWriter) *Response {
 		app:     app,
 		rw:      rw,
 		headers: make(http.Header),
-		body:    make([]byte, 0),
+		body:    bytes.NewBuffer(nil),
+	}
+
+	if app != nil {
+		resp.maxBodyBytes = app.MaxResponseBodyBytes()
+	} else {
+		resp.maxBodyBytes = MaxResponseBodyBytesDefault
 	}
 
 	return resp
@@ -71,8 +80,18 @@ func (resp *Response) Headers() http.Header {
 // the body. It returns the number of bytes written and any error encountered during the write
 // operation.
 func (resp *Response) Write(data []byte) (int, error) {
-	resp.body = append(resp.body, data...)
-	return len(data), nil
+	if len(data) == 0 {
+		return 0, nil
+	}
+
+	if resp.maxBodyBytes == MaxResponseBodyBytesUnlimited {
+		return resp.body.Write(data)
+	}
+
+	if int64(resp.body.Len())+int64(len(data)) > resp.maxBodyBytes {
+		return 0, ErrResponseTooLarge
+	}
+	return resp.body.Write(data)
 }
 
 // Status sets the HTTP status code for the response. This method allows you to specify the status
@@ -115,9 +134,12 @@ func (resp *Response) send() error {
 		resp.rw.WriteHeader(http.StatusOK)
 	}
 
-	if len(resp.body) > 0 {
-		_, err := resp.rw.Write(resp.body)
-		return err
+	if resp.body.Len() > 0 {
+		_, err := io.Copy(resp.rw, resp.body)
+		if err != nil {
+			return err
+		}
+		resp.body.Reset()
 	}
 
 	return nil

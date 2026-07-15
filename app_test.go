@@ -134,3 +134,20 @@ func TestApplication_Address(t *testing.T) {
 		t.Fatalf("expected address ':9090', got %v", app.Address())
 	}
 }
+
+func TestApplication_MaxResponseBodyBytes(t *testing.T) {
+	app := Default()
+	if app.MaxResponseBodyBytes() != MaxResponseBodyBytesDefault {
+		t.Fatalf("expected default max body bytes %d, got %d", MaxResponseBodyBytesDefault, app.MaxResponseBodyBytes())
+	}
+
+	app.SetMaxResponseBodyBytes(1024)
+	if app.MaxResponseBodyBytes() != 1024 {
+		t.Fatalf("expected max body bytes 1024, got %d", app.MaxResponseBodyBytes())
+	}
+
+	app.SetMaxResponseBodyBytes(MaxResponseBodyBytesUnlimited)
+	if app.MaxResponseBodyBytes() != MaxResponseBodyBytesUnlimited {
+		t.Fatalf("expected max body bytes unlimited, got %d", app.MaxResponseBodyBytes())
+	}
+}

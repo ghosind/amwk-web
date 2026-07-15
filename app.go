@@ -12,11 +12,22 @@ import (
 	"github.com/go-amwk/engine"
 )
 
+const (
+	// MaxResponseBodyBytesDefault defines the default maximum body size for responses. It is set
+	// to 32 MB.
+	MaxResponseBodyBytesDefault int64 = 32 * 1024 * 1024
+	// MaxResponseBodyBytesUnlimited defines a special value indicating that there is no limit on
+	// the body size for responses.
+	MaxResponseBodyBytesUnlimited int64 = -1
+)
+
 // Application is an HTTP web application to serve HTTP requests.
 type Application struct {
 	addr     string
 	server   *http.Server
 	handlers []core.HandlerFunc
+
+	maxResponseBodyBytes *int64
 }
 
 // defaultApp creates a new Application instance with default settings.
@@ -118,4 +129,24 @@ func (app *Application) Address() string {
 // starting the application server.
 func (app *Application) SetAddress(addr string) {
 	app.addr = addr
+}
+
+// MaxResponseBodyBytes returns the maximum body size for responses. If the size is set to
+// MaxResponseBodyBytesUnlimited, there will be no limit on the body size.
+func (app *Application) MaxResponseBodyBytes() int64 {
+	if app.maxResponseBodyBytes == nil {
+		return MaxResponseBodyBytesDefault
+	}
+	return *app.maxResponseBodyBytes
+}
+
+// SetMaxResponseBodyBytes sets the maximum body size for responses. If the size is set to
+// MaxResponseBodyBytesUnlimited, there will be no limit on the body size.
+// It would be better to call this method before starting the application server to avoid
+// unexpected behavior.
+func (app *Application) SetMaxResponseBodyBytes(size int64) {
+	if app.maxResponseBodyBytes == nil {
+		app.maxResponseBodyBytes = new(int64)
+	}
+	*app.maxResponseBodyBytes = size
 }
