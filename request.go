@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -44,7 +45,13 @@ func (req *Request) Body() (io.ReadCloser, error) {
 
 // ClientIP returns the client's IP address from the request.
 func (req *Request) ClientIP() string {
-	return req.req.RemoteAddr
+	ip := req.req.RemoteAddr
+	host, _, err := net.SplitHostPort(ip)
+	if err != nil {
+		return ip
+	}
+
+	return host
 }
 
 // ContentLength returns the length of the request body in bytes. If the length is unknown, it

@@ -44,8 +44,8 @@ func TestRequest_ClientIP(t *testing.T) {
 	r := newRequest(nil, req)
 
 	ip := r.ClientIP()
-	if ip != "192.0.2.1:1234" {
-		t.Fatalf("expected ClientIP '192.0.2.1:1234', got %v", ip)
+	if ip != "192.0.2.1" {
+		t.Fatalf("expected ClientIP '192.0.2.1', got %v", ip)
 	}
 }
 
