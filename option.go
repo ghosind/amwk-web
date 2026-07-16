@@ -43,6 +43,15 @@ func WithMaxHeaderBytes(size int) Option {
 	}
 }
 
+// WithMaxRequestBodyBytes sets the maximum body size for requests. If the size is set to
+// MaxRequestBodyBytesUnlimited, there will be no limit on the body size. It is recommended to call
+// this method before starting the application server to avoid unexpected behavior.
+func WithMaxRequestBodyBytes(size int64) Option {
+	return func(app *Application) {
+		app.SetMaxRequestBodyBytes(size)
+	}
+}
+
 // WithMaxResponseBodyBytes sets the maximum body size for responses. If the size is set to
 // MaxResponseBodyBytesUnlimited, there will be no limit on the body size.
 func WithMaxResponseBodyBytes(size int64) Option {

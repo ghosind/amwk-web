@@ -184,6 +184,23 @@ func TestApplication_MaxHeaderBytes(t *testing.T) {
 	}
 }
 
+func TestApplication_MaxRequestBodyBytes(t *testing.T) {
+	app := Default()
+	if app.MaxRequestBodyBytes() != MaxRequestBodyBytesDefault {
+		t.Fatalf("expected default max request body bytes %d, got %d", MaxRequestBodyBytesDefault, app.MaxRequestBodyBytes())
+	}
+
+	app.SetMaxRequestBodyBytes(1024)
+	if app.MaxRequestBodyBytes() != 1024 {
+		t.Fatalf("expected max request body bytes 1024, got %d", app.MaxRequestBodyBytes())
+	}
+
+	app.SetMaxRequestBodyBytes(MaxRequestBodyBytesUnlimited)
+	if app.MaxRequestBodyBytes() != MaxRequestBodyBytesUnlimited {
+		t.Fatalf("expected max request body bytes unlimited, got %d", app.MaxRequestBodyBytes())
+	}
+}
+
 func TestApplication_MaxResponseBodyBytes(t *testing.T) {
 	app := Default()
 	if app.MaxResponseBodyBytes() != MaxResponseBodyBytesDefault {

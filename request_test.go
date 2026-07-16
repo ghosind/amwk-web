@@ -2,10 +2,12 @@ package web
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +38,70 @@ func TestRequest_Body(t *testing.T) {
 	b, _ := io.ReadAll(rc)
 	if string(b) != "hello world" {
 		t.Fatalf("expected body 'hello world', got %q", string(b))
+	}
+}
+
+func TestRequest_Body_LimitExceeded(t *testing.T) {
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/", body)
+
+	app := New(WithMaxRequestBodyBytes(50))
+	r := newRequest(app, req)
+
+	rc, err := r.Body()
+	if err != nil {
+		t.Fatalf("Body error: %v", err)
+	}
+
+	_, err = io.ReadAll(rc)
+	if err == nil {
+		t.Fatalf("expected MaxBytesError when body exceeds limit, got nil")
+	}
+	var maxBytesErr *http.MaxBytesError
+	if !errors.As(err, &maxBytesErr) {
+		t.Fatalf("expected *http.MaxBytesError, got %T: %v", err, err)
+	}
+	if maxBytesErr.Limit != 50 {
+		t.Fatalf("expected limit 50, got %d", maxBytesErr.Limit)
+	}
+}
+
+func TestRequest_Body_Unlimited(t *testing.T) {
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/", body)
+
+	app := New(WithMaxRequestBodyBytes(MaxRequestBodyBytesUnlimited))
+	r := newRequest(app, req)
+
+	rc, err := r.Body()
+	if err != nil {
+		t.Fatalf("Body error: %v", err)
+	}
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll error: %v", err)
+	}
+	if len(data) != 100 {
+		t.Fatalf("expected 100 bytes, got %d", len(data))
+	}
+}
+
+func TestRequest_Body_Idempotent(t *testing.T) {
+	body := bytes.NewReader([]byte("hello"))
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/", body)
+	r := newRequest(nil, req)
+
+	rc1, _ := r.Body()
+	rc2, _ := r.Body()
+
+	if rc1 != rc2 {
+		t.Fatalf("expected same reader from multiple Body() calls (sync.Once), got different")
+	}
+
+	data, _ := io.ReadAll(rc1)
+	if string(data) != "hello" {
+		t.Fatalf("expected 'hello', got %q", string(data))
 	}
 }
 
@@ -236,5 +302,19 @@ func TestRequest_Request(t *testing.T) {
 	}
 	if !reflect.DeepEqual(r.Request(), req) {
 		t.Fatalf("expected Request() to return the original http.Request")
+	}
+}
+
+func TestRequest_SetMaxBodyBytes(t *testing.T) {
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/", body)
+
+	r := newRequest(nil, req)
+	r.SetMaxBodyBytes(50)
+
+	rc, _ := r.Body()
+	_, err := io.ReadAll(rc)
+	if err == nil {
+		t.Fatalf("expected MaxBytesError after SetMaxBodyBytes(50), got nil")
 	}
 }

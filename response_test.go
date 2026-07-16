@@ -186,3 +186,36 @@ func TestResponse_Response(t *testing.T) {
 		t.Fatalf("expected Response() to return the original response writer")
 	}
 }
+
+func TestResponse_SetMaxBodyBytes(t *testing.T) {
+	rr := httptest.NewRecorder()
+	resp := newResponse(nil, rr)
+
+	// default is MaxResponseBodyBytesDefault
+	resp.SetMaxBodyBytes(10)
+
+	n, err := resp.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte(" world"))
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected ErrResponseTooLarge after SetMaxBodyBytes(10), got n=%d err=%v", n, err)
+	}
+
+	// set to unlimited, should allow larger writes
+	resp.SetMaxBodyBytes(MaxResponseBodyBytesUnlimited)
+	n, err = resp.Write([]byte(" world"))
+	if err != nil || n != 6 {
+		t.Fatalf("Write unexpected after unlimited: n=%d err=%v", n, err)
+	}
+
+	// set to 0 should block all writes
+	newResp := newResponse(nil, httptest.NewRecorder())
+	newResp.SetMaxBodyBytes(0)
+	n, err = newResp.Write([]byte("x"))
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected ErrResponseTooLarge when maxBodyBytes=0, got n=%d err=%v", n, err)
+	}
+}

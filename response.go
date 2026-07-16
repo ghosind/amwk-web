@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/go-amwk/core"
 )
@@ -14,7 +15,7 @@ type Response struct {
 	statusCode   int
 	headers      http.Header
 	body         *bytes.Buffer
-	maxBodyBytes int64
+	maxBodyBytes atomic.Int64
 }
 
 // newResponse creates a new Response instance with application context and http.ResponseWriter.
@@ -28,9 +29,9 @@ func newResponse(app *Application, rw http.ResponseWriter) *Response {
 	}
 
 	if app != nil {
-		resp.maxBodyBytes = app.MaxResponseBodyBytes()
+		resp.maxBodyBytes.Store(app.MaxResponseBodyBytes())
 	} else {
-		resp.maxBodyBytes = MaxResponseBodyBytesDefault
+		resp.maxBodyBytes.Store(MaxResponseBodyBytesDefault)
 	}
 
 	return resp
@@ -84,11 +85,13 @@ func (resp *Response) Write(data []byte) (int, error) {
 		return 0, nil
 	}
 
-	if resp.maxBodyBytes == MaxResponseBodyBytesUnlimited {
+	maxBytes := resp.maxBodyBytes.Load()
+
+	if maxBytes == MaxResponseBodyBytesUnlimited {
 		return resp.body.Write(data)
 	}
 
-	if int64(resp.body.Len())+int64(len(data)) > resp.maxBodyBytes {
+	if int64(resp.body.Len())+int64(len(data)) > maxBytes {
 		return 0, ErrResponseTooLarge
 	}
 	return resp.body.Write(data)
@@ -117,6 +120,12 @@ func (resp *Response) StatusCode() int {
 // interface to manipulate the response instead.
 func (resp *Response) Response() any {
 	return resp.rw
+}
+
+// SetMaxBodyBytes sets the maximum body size in bytes for this response. A value of -1 indicates
+// that there is no limit on the body size, while a value of 0 indicates that no body is allowed.
+func (resp *Response) SetMaxBodyBytes(size int64) {
+	resp.maxBodyBytes.Store(size)
 }
 
 // send sends the response to the client by writing the headers, status code, and body to the

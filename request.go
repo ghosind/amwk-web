@@ -7,18 +7,22 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-amwk/core"
 )
 
 // Request represents an HTTP request received by the application.
 type Request struct {
-	resource  string
-	queries   url.Values
-	queryOnce sync.Once
-
 	app *Application
 	req *http.Request
+
+	body         io.ReadCloser
+	bodyOnce     sync.Once
+	resource     string
+	queries      url.Values
+	queryOnce    sync.Once
+	maxBodyBytes atomic.Int64
 }
 
 // newRequest creates a new Request instance from the application context and the underlying
@@ -27,6 +31,11 @@ func newRequest(app *Application, r *http.Request) *Request {
 	req := &Request{
 		app: app,
 		req: r,
+	}
+	if app != nil {
+		req.maxBodyBytes.Store(app.MaxRequestBodyBytes())
+	} else {
+		req.maxBodyBytes.Store(MaxRequestBodyBytesDefault)
 	}
 
 	return req
@@ -43,7 +52,18 @@ func (req *Request) Application() core.Application {
 
 // Body returns the request body as a readable stream.
 func (req *Request) Body() (io.ReadCloser, error) {
-	return req.req.Body, nil
+	req.bodyOnce.Do(func() {
+		maxBytes := req.maxBodyBytes.Load()
+
+		if maxBytes == MaxRequestBodyBytesUnlimited {
+			req.body = req.req.Body
+		} else {
+			// Limit the request body size to the specified maximum bytes.
+			req.body = http.MaxBytesReader(nil, req.req.Body, maxBytes)
+		}
+	})
+
+	return req.body, nil
 }
 
 // ClientIP returns the client's IP address from the request.
@@ -152,7 +172,13 @@ func (req *Request) Query(name string) string {
 // URL. If the parameter is not present, it returns an empty slice.
 func (req *Request) QueryValues(name string) []string {
 	queries := req.getQueries()
-	return queries[name]
+	if _, ok := queries[name]; !ok {
+		return nil
+	}
+
+	values := make([]string, len(queries[name]))
+	copy(values, queries[name])
+	return values
 }
 
 // Queries returns all query parameters from the request URL as a url.Values map, where the keys
@@ -175,6 +201,14 @@ func (req *Request) Queries() url.Values {
 // exposed through the Request interface.
 func (req *Request) Request() any {
 	return req.req
+}
+
+// SetMaxBodyBytes sets the maximum body size in bytes for this request. A value of -1 indicates
+// that there is no limit on the body size, while a value of 0 indicates that no body is allowed.
+// This method should be called before reading the request body to ensure that the size limit is
+// enforced correctly.
+func (req *Request) SetMaxBodyBytes(size int64) {
+	req.maxBodyBytes.Store(size)
 }
 
 // getQueries retrieves the query parameters from the request URL. It uses sync.Once to ensure that

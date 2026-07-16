@@ -24,6 +24,12 @@ const (
 	// MaxHeaderBytesDefault defines the default maximum size of request headers. It is set to
 	// 1 MB.
 	MaxHeaderBytesDefault int = 1 << 20
+	// MaxRequestBodyBytesDefault defines the default maximum body size for requests. It is set to
+	// 32 MB.
+	MaxRequestBodyBytesDefault int64 = 1 << 25
+	// MaxRequestBodyBytesUnlimited indicates a special value that represents no limit on the body
+	// size for requests.
+	MaxRequestBodyBytesUnlimited int64 = -1
 	// MaxResponseBodyBytesDefault defines the default maximum body size for responses. It is set
 	// to 32 MB.
 	MaxResponseBodyBytesDefault int64 = 1 << 25
@@ -56,6 +62,7 @@ type Application struct {
 	server   *http.Server
 	handlers []core.HandlerFunc
 
+	maxRequestBodyBytes   atomic.Int64
 	maxResponseBodyBytes  atomic.Int64
 	enableShutdownSignal  atomic.Bool
 	shutdownListenSignals []os.Signal
@@ -68,15 +75,16 @@ func defaultApp() *Application {
 	app.handlers = make([]core.HandlerFunc, 0)
 	app.server = &http.Server{
 		Handler:           app,
+		IdleTimeout:       IdleTimeoutDefault,
+		MaxHeaderBytes:    MaxHeaderBytesDefault,
+		ReadHeaderTimeout: ReadHeaderTimeoutDefault,
 		ReadTimeout:       ReadTimeoutDefault,
 		WriteTimeout:      WriteTimeoutDefault,
-		IdleTimeout:       IdleTimeoutDefault,
-		ReadHeaderTimeout: ReadHeaderTimeoutDefault,
-		MaxHeaderBytes:    MaxHeaderBytesDefault,
 	}
 	app.
 		SetAddress(AddressDefault).
 		SetEnableShutdownSignal(true, shutdownListenSignalsDefault...).
+		SetMaxRequestBodyBytes(MaxRequestBodyBytesDefault).
 		SetMaxResponseBodyBytes(MaxResponseBodyBytesDefault).
 		SetShutdownTimeout(ShutdownTimeoutDefault)
 
@@ -164,9 +172,10 @@ func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := engine.NewContext(app, req, resp)
 	ctx.Use(app.handlers...)
 
-	ctx.Next()
+	// TODO: add error handling
+	_ = ctx.Next()
 
-	resp.send()
+	_ = resp.send()
 }
 
 // Address returns the address the application is listening on.
@@ -209,6 +218,21 @@ func (app *Application) SetMaxHeaderBytes(size int) *Application {
 	if app.server != nil {
 		app.server.MaxHeaderBytes = size
 	}
+	return app
+}
+
+// MaxRequestBodyBytes returns the maximum body size for requests. If the size is set to
+// MaxRequestBodyBytesUnlimited, there will be no limit on the body size.
+func (app *Application) MaxRequestBodyBytes() int64 {
+	return app.maxRequestBodyBytes.Load()
+}
+
+// SetMaxRequestBodyBytes sets the maximum body size for requests. If the size is set to
+// MaxRequestBodyBytesUnlimited, there will be no limit on the body size.
+// It would be better to call this method before starting the application server to avoid
+// unexpected behavior.
+func (app *Application) SetMaxRequestBodyBytes(size int64) *Application {
+	app.maxRequestBodyBytes.Store(size)
 	return app
 }
 
