@@ -18,12 +18,30 @@ const (
 	// to ":8000", which means the server will listen on all available network interfaces on
 	// port 8000.
 	AddressDefault = ":8000"
+	// IdleTimeoutDefault defines the default maximum amount of time to wait for the next request
+	// when keep-alives are enabled. It is set to 60 seconds.
+	IdleTimeoutDefault time.Duration = 60 * time.Second
+	// MaxHeaderBytesDefault defines the default maximum size of request headers. It is set to
+	// 1 MB.
+	MaxHeaderBytesDefault int = 1 << 20
 	// MaxResponseBodyBytesDefault defines the default maximum body size for responses. It is set
 	// to 32 MB.
-	MaxResponseBodyBytesDefault int64 = 32 * 1024 * 1024
+	MaxResponseBodyBytesDefault int64 = 1 << 25
 	// MaxResponseBodyBytesUnlimited defines a special value indicating that there is no limit on
 	// the body size for responses.
 	MaxResponseBodyBytesUnlimited int64 = -1
+	// ReadHeaderTimeoutDefault defines the default maximum duration for reading the headers of
+	// the request. It is set to 10 seconds.
+	ReadHeaderTimeoutDefault time.Duration = 10 * time.Second
+	// ReadTimeoutDefault defines the default maximum duration for reading the entire request,
+	// including the body. It is set to 30 seconds.
+	ReadTimeoutDefault time.Duration = 30 * time.Second
+	// ShutdownTimeoutDefault defines the default maximum duration for gracefully shutting down
+	// the application server. It is set to 5 seconds.
+	ShutdownTimeoutDefault time.Duration = 5 * time.Second
+	// WriteTimeoutDefault defines the default maximum duration before timing out writes of the
+	// response. It is set to 30 seconds.
+	WriteTimeoutDefault time.Duration = 30 * time.Second
 )
 
 var (
@@ -41,6 +59,7 @@ type Application struct {
 	maxResponseBodyBytes  atomic.Int64
 	enableShutdownSignal  atomic.Bool
 	shutdownListenSignals []os.Signal
+	shutdownTimeout       time.Duration
 }
 
 // defaultApp creates a new Application instance with default settings.
@@ -48,12 +67,18 @@ func defaultApp() *Application {
 	app := &Application{}
 	app.handlers = make([]core.HandlerFunc, 0)
 	app.server = &http.Server{
-		Handler: app,
+		Handler:           app,
+		ReadTimeout:       ReadTimeoutDefault,
+		WriteTimeout:      WriteTimeoutDefault,
+		IdleTimeout:       IdleTimeoutDefault,
+		ReadHeaderTimeout: ReadHeaderTimeoutDefault,
+		MaxHeaderBytes:    MaxHeaderBytesDefault,
 	}
 	app.
 		SetAddress(AddressDefault).
+		SetEnableShutdownSignal(true, shutdownListenSignalsDefault...).
 		SetMaxResponseBodyBytes(MaxResponseBodyBytesDefault).
-		SetEnableShutdownSignal(true, shutdownListenSignalsDefault...)
+		SetShutdownTimeout(ShutdownTimeoutDefault)
 
 	return app
 }
@@ -94,7 +119,12 @@ func (app *Application) Start() error {
 	}()
 	select {
 	case <-sig:
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownTimeout := app.shutdownTimeout
+		if shutdownTimeout <= 0 {
+			shutdownTimeout = ShutdownTimeoutDefault
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		return app.Shutdown(ctx)
 	case err := <-errCh:
@@ -151,6 +181,37 @@ func (app *Application) SetAddress(addr string) *Application {
 	return app
 }
 
+// SetEnableShutdownSignal enables or disables the handling of shutdown signals for the
+// application. If enabled, the application will listen for shutdown signals (e.g., os.Interrupt,
+// syscall.SIGTERM, syscall.SIGQUIT) and gracefully shut down when such a signal is received.
+// You can also specify custom signals to listen for by providing them as additional arguments.
+func (app *Application) SetEnableShutdownSignal(enable bool, signals ...os.Signal) *Application {
+	app.enableShutdownSignal.Store(enable)
+	if len(signals) > 0 {
+		app.shutdownListenSignals = signals
+	}
+	return app
+}
+
+// SetIdleTimeout sets the maximum amount of time to wait for the next request when keep-alives are
+// enabled. It is recommended to call this method before starting the application server to avoid
+// unexpected behavior.
+func (app *Application) SetIdleTimeout(timeout time.Duration) *Application {
+	if app.server != nil {
+		app.server.IdleTimeout = timeout
+	}
+	return app
+}
+
+// SetMaxHeaderBytes sets the maximum size of request headers. It is recommended to call this
+// method before starting the application server to avoid unexpected behavior.
+func (app *Application) SetMaxHeaderBytes(size int) *Application {
+	if app.server != nil {
+		app.server.MaxHeaderBytes = size
+	}
+	return app
+}
+
 // MaxResponseBodyBytes returns the maximum body size for responses. If the size is set to
 // MaxResponseBodyBytesUnlimited, there will be no limit on the body size.
 func (app *Application) MaxResponseBodyBytes() int64 {
@@ -166,14 +227,40 @@ func (app *Application) SetMaxResponseBodyBytes(size int64) *Application {
 	return app
 }
 
-// SetEnableShutdownSignal enables or disables the handling of shutdown signals for the
-// application. If enabled, the application will listen for shutdown signals (e.g., os.Interrupt,
-// syscall.SIGTERM, syscall.SIGQUIT) and gracefully shut down when such a signal is received.
-// You can also specify custom signals to listen for by providing them as additional arguments.
-func (app *Application) SetEnableShutdownSignal(enable bool, signals ...os.Signal) *Application {
-	app.enableShutdownSignal.Store(enable)
-	if len(signals) > 0 {
-		app.shutdownListenSignals = signals
+// SetReadHeaderTimeout sets the maximum duration for reading the headers of the request. It is
+// recommended to call this method before starting the application server to avoid unexpected
+// behavior.
+func (app *Application) SetReadHeaderTimeout(timeout time.Duration) *Application {
+	if app.server != nil {
+		app.server.ReadHeaderTimeout = timeout
+	}
+	return app
+}
+
+// SetReadTimeout sets the maximum duration for reading the entire request, including the body. It
+// is recommended to call this method before starting the application server to avoid unexpected
+// behavior.
+func (app *Application) SetReadTimeout(timeout time.Duration) *Application {
+	if app.server != nil {
+		app.server.ReadTimeout = timeout
+	}
+	return app
+}
+
+// SetShutdownTimeout sets the maximum duration for gracefully shutting down the application
+// server. It is recommended to call this method before starting the application server to avoid
+// unexpected behavior.
+func (app *Application) SetShutdownTimeout(timeout time.Duration) *Application {
+	app.shutdownTimeout = timeout
+	return app
+}
+
+// SetWriteTimeout sets the maximum duration before timing out writes of the response. It is
+// recommended to call this method before starting the application server to avoid unexpected
+// behavior.
+func (app *Application) SetWriteTimeout(timeout time.Duration) *Application {
+	if app.server != nil {
+		app.server.WriteTimeout = timeout
 	}
 	return app
 }
