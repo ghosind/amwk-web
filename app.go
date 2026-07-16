@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 )
 
 const (
+	// AddressDefault defines the default address for the application server to listen on. It is set
+	// to ":8000", which means the server will listen on all available network interfaces on
+	// port 8000.
+	AddressDefault = ":8000"
 	// MaxResponseBodyBytesDefault defines the default maximum body size for responses. It is set
 	// to 32 MB.
 	MaxResponseBodyBytesDefault int64 = 32 * 1024 * 1024
@@ -21,23 +26,34 @@ const (
 	MaxResponseBodyBytesUnlimited int64 = -1
 )
 
+var (
+	// shutdownListenSignalsDefault defines the default signals to listen for when shutting down the
+	// application. It includes os.Interrupt, syscall.SIGTERM, and syscall.SIGQUIT.
+	shutdownListenSignalsDefault = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT}
+)
+
 // Application is an HTTP web application to serve HTTP requests.
 type Application struct {
 	addr     string
 	server   *http.Server
 	handlers []core.HandlerFunc
 
-	maxResponseBodyBytes *int64
+	maxResponseBodyBytes  atomic.Int64
+	enableShutdownSignal  atomic.Bool
+	shutdownListenSignals []os.Signal
 }
 
 // defaultApp creates a new Application instance with default settings.
 func defaultApp() *Application {
 	app := &Application{}
 	app.handlers = make([]core.HandlerFunc, 0)
-	app.addr = ":8000"
 	app.server = &http.Server{
 		Handler: app,
 	}
+	app.
+		SetAddress(AddressDefault).
+		SetMaxResponseBodyBytes(MaxResponseBodyBytesDefault).
+		SetEnableShutdownSignal(true, shutdownListenSignalsDefault...)
 
 	return app
 }
@@ -70,9 +86,12 @@ func (app *Application) Start() error {
 		errCh <- app.server.ListenAndServe()
 	}()
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(sig)
+	sig := app.listenShutdownSignals(app.shutdownListenSignals)
+	defer func() {
+		if sig != nil {
+			signal.Stop(sig)
+		}
+	}()
 	select {
 	case <-sig:
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -127,26 +146,50 @@ func (app *Application) Address() string {
 
 // SetAddress sets the address for the application to listen on. Please call this method before
 // starting the application server.
-func (app *Application) SetAddress(addr string) {
+func (app *Application) SetAddress(addr string) *Application {
 	app.addr = addr
+	return app
 }
 
 // MaxResponseBodyBytes returns the maximum body size for responses. If the size is set to
 // MaxResponseBodyBytesUnlimited, there will be no limit on the body size.
 func (app *Application) MaxResponseBodyBytes() int64 {
-	if app.maxResponseBodyBytes == nil {
-		return MaxResponseBodyBytesDefault
-	}
-	return *app.maxResponseBodyBytes
+	return app.maxResponseBodyBytes.Load()
 }
 
 // SetMaxResponseBodyBytes sets the maximum body size for responses. If the size is set to
 // MaxResponseBodyBytesUnlimited, there will be no limit on the body size.
 // It would be better to call this method before starting the application server to avoid
 // unexpected behavior.
-func (app *Application) SetMaxResponseBodyBytes(size int64) {
-	if app.maxResponseBodyBytes == nil {
-		app.maxResponseBodyBytes = new(int64)
+func (app *Application) SetMaxResponseBodyBytes(size int64) *Application {
+	app.maxResponseBodyBytes.Store(size)
+	return app
+}
+
+// SetEnableShutdownSignal enables or disables the handling of shutdown signals for the
+// application. If enabled, the application will listen for shutdown signals (e.g., os.Interrupt,
+// syscall.SIGTERM, syscall.SIGQUIT) and gracefully shut down when such a signal is received.
+// You can also specify custom signals to listen for by providing them as additional arguments.
+func (app *Application) SetEnableShutdownSignal(enable bool, signals ...os.Signal) *Application {
+	app.enableShutdownSignal.Store(enable)
+	if len(signals) > 0 {
+		app.shutdownListenSignals = signals
 	}
-	*app.maxResponseBodyBytes = size
+	return app
+}
+
+// listenShutdownSignals listens for shutdown signals if enabled and returns a channel that
+// receives the signals. If shutdown signal handling is disabled, it returns nil.
+func (app *Application) listenShutdownSignals(signals []os.Signal) chan os.Signal {
+	if !app.enableShutdownSignal.Load() {
+		return nil
+	}
+
+	if len(signals) == 0 {
+		signals = shutdownListenSignalsDefault
+	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, signals...)
+	return sig
 }
