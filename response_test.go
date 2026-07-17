@@ -1,15 +1,29 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 )
 
-func TestNewResponse_Headers(t *testing.T) {
+func TestResponse_Application(t *testing.T) {
+	app := Default()
+	resp := newResponse(app, httptest.NewRecorder())
+	if resp.Application() != app {
+		t.Fatalf("expected Application() to return the original application instance")
+	}
+
+	resp = newResponse(nil, httptest.NewRecorder())
+	if resp.Application() != nil {
+		t.Fatalf("expected Application() to return nil when no application is associated")
+	}
+}
+
+func TestResponse_Headers(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 
 	resp.AddHeader("A", "1")
 	resp.AddHeader("A", "2")
@@ -51,15 +65,25 @@ func TestNewResponse_Headers(t *testing.T) {
 
 func TestResponse_Write(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 
-	n, err := resp.Write([]byte("hello"))
+	n, err := resp.Write([]byte{}) // empty
+	if err != nil || n != 0 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write(nil) // nil
+	if err != nil || n != 0 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte("hello"))
 	if err != nil || n != 5 {
 		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
 	}
 
-	if string(resp.body) != "hello" {
-		t.Fatalf("expected body 'hello', got %q", string(resp.body))
+	if resp.body.String() != "hello" {
+		t.Fatalf("expected body 'hello', got %q", resp.body.String())
 	}
 
 	n, err = resp.Write([]byte(" world"))
@@ -67,8 +91,8 @@ func TestResponse_Write(t *testing.T) {
 		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
 	}
 
-	if string(resp.body) != "hello world" {
-		t.Fatalf("expected body 'hello world', got %q", string(resp.body))
+	if resp.body.String() != "hello world" {
+		t.Fatalf("expected body 'hello world', got %q", resp.body.String())
 	}
 
 	resp.send()
@@ -78,9 +102,67 @@ func TestResponse_Write(t *testing.T) {
 	}
 }
 
+func TestResponse_Write_LargeBody(t *testing.T) {
+	app := New(WithMaxResponseBodyBytes(11)) // Set max body size to 11 bytes
+	rr := httptest.NewRecorder()
+	resp := newResponse(app, rr)
+
+	n, err := resp.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte(" "))
+	if err != nil || n != 1 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte("world!"))
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected error ErrResponseTooLarge when writing large body, got n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte("world"))
+	if err != nil || n != 5 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte("!"))
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected error ErrResponseTooLarge when writing large body, got n=%d err=%v", n, err)
+	}
+
+	if resp.body.String() != "hello world" {
+		t.Fatalf("expected body 'hello world', got %q", resp.body.String())
+	}
+
+	resp.send()
+
+	if rr.Body.String() != "hello world" {
+		t.Fatalf("expected sent body 'hello world', got %q", rr.Body.String())
+	}
+}
+
+func TestResponse_Write_Unlimited(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
+	app := New(WithMaxResponseBodyBytes(MaxResponseBodyBytesUnlimited)) // Set max body size to unlimited
+	rr := httptest.NewRecorder()
+	resp := newResponse(app, rr)
+
+	largeData := make([]byte, MaxResponseBodyBytesDefault+1) // Create data larger than default max size
+
+	n, err := resp.Write(largeData)
+	if err != nil || n != len(largeData) {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+}
+
 func TestResponse_Status(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 
 	resp.Status(201)
 	if resp.StatusCode() != 201 {
@@ -96,11 +178,44 @@ func TestResponse_Status(t *testing.T) {
 
 func TestResponse_Response(t *testing.T) {
 	rr := httptest.NewRecorder()
-	resp := newResponse(rr)
+	resp := newResponse(nil, rr)
 	if resp.Response() == nil {
 		t.Fatalf("expected underlying response writer non-nil")
 	}
 	if !reflect.DeepEqual(resp.Response(), rr) {
 		t.Fatalf("expected Response() to return the original response writer")
+	}
+}
+
+func TestResponse_SetMaxBodyBytes(t *testing.T) {
+	rr := httptest.NewRecorder()
+	resp := newResponse(nil, rr)
+
+	// default is MaxResponseBodyBytesDefault
+	resp.SetMaxBodyBytes(10)
+
+	n, err := resp.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("Write unexpected: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.Write([]byte(" world"))
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected ErrResponseTooLarge after SetMaxBodyBytes(10), got n=%d err=%v", n, err)
+	}
+
+	// set to unlimited, should allow larger writes
+	resp.SetMaxBodyBytes(MaxResponseBodyBytesUnlimited)
+	n, err = resp.Write([]byte(" world"))
+	if err != nil || n != 6 {
+		t.Fatalf("Write unexpected after unlimited: n=%d err=%v", n, err)
+	}
+
+	// set to 0 should block all writes
+	newResp := newResponse(nil, httptest.NewRecorder())
+	newResp.SetMaxBodyBytes(0)
+	n, err = newResp.Write([]byte("x"))
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected ErrResponseTooLarge when maxBodyBytes=0, got n=%d err=%v", n, err)
 	}
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func TestApplication_Start_Signal(t *testing.T) {
-	app := New(WithAddress(":0")).(*Application)
+	app := New(WithAddress(":0"))
 
 	done := make(chan error, 1)
 	go func() {
