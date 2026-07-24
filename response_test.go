@@ -219,3 +219,126 @@ func TestResponse_SetMaxBodyBytes(t *testing.T) {
 		t.Fatalf("expected ErrResponseTooLarge when maxBodyBytes=0, got n=%d err=%v", n, err)
 	}
 }
+
+func TestResponse_WriteString(t *testing.T) {
+	rr := httptest.NewRecorder()
+	resp := newResponse(nil, rr)
+
+	n, err := resp.WriteString("")
+	if err != nil || n != 0 {
+		t.Fatalf("WriteString empty: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.WriteString("hello")
+	if err != nil || n != 5 {
+		t.Fatalf("WriteString: n=%d err=%v", n, err)
+	}
+
+	if resp.body.String() != "hello" {
+		t.Fatalf("expected body 'hello', got %q", resp.body.String())
+	}
+
+	n, err = resp.WriteString(" world")
+	if err != nil || n != 6 {
+		t.Fatalf("WriteString: n=%d err=%v", n, err)
+	}
+
+	if resp.body.String() != "hello world" {
+		t.Fatalf("expected body 'hello world', got %q", resp.body.String())
+	}
+
+	resp.send()
+
+	if rr.Body.String() != "hello world" {
+		t.Fatalf("expected sent body 'hello world', got %q", rr.Body.String())
+	}
+}
+
+func TestResponse_WriteString_LargeBody(t *testing.T) {
+	app := New(WithMaxResponseBodyBytes(11))
+	rr := httptest.NewRecorder()
+	resp := newResponse(app, rr)
+
+	n, err := resp.WriteString("hello")
+	if err != nil || n != 5 {
+		t.Fatalf("WriteString: n=%d err=%v", n, err)
+	}
+
+	n, err = resp.WriteString(" world!")
+	if err == nil || !errors.Is(err, ErrResponseTooLarge) || n != 0 {
+		t.Fatalf("expected ErrResponseTooLarge, got n=%d err=%v", n, err)
+	}
+
+	// body should remain unchanged after failed write
+	if resp.body.String() != "hello" {
+		t.Fatalf("expected body 'hello' after failed write, got %q", resp.body.String())
+	}
+
+	resp.send()
+
+	if rr.Body.String() != "hello" {
+		t.Fatalf("expected sent body 'hello', got %q", rr.Body.String())
+	}
+}
+
+func TestResponse_WriteString_Unlimited(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
+	app := New(WithMaxResponseBodyBytes(MaxResponseBodyBytesUnlimited))
+	rr := httptest.NewRecorder()
+	resp := newResponse(app, rr)
+
+	largeStr := string(make([]byte, MaxResponseBodyBytesDefault+1))
+
+	n, err := resp.WriteString(largeStr)
+	if err != nil || n != len(largeStr) {
+		t.Fatalf("WriteString unlimited: n=%d err=%v", n, err)
+	}
+}
+
+func TestResponse_Size(t *testing.T) {
+	rr := httptest.NewRecorder()
+	resp := newResponse(nil, rr)
+
+	if resp.Size() != 0 {
+		t.Fatalf("expected Size 0, got %d", resp.Size())
+	}
+
+	resp.Write([]byte("hello"))
+	if resp.Size() != 5 {
+		t.Fatalf("expected Size 5, got %d", resp.Size())
+	}
+
+	resp.WriteString(" world")
+	if resp.Size() != 11 {
+		t.Fatalf("expected Size 11, got %d", resp.Size())
+	}
+}
+
+func TestResponse_Written(t *testing.T) {
+	rr := httptest.NewRecorder()
+	resp := newResponse(nil, rr)
+
+	if len(resp.Written()) != 0 {
+		t.Fatalf("expected empty Written, got %v", resp.Written())
+	}
+
+	resp.Write([]byte("hello"))
+	if string(resp.Written()) != "hello" {
+		t.Fatalf("expected Written 'hello', got %q", string(resp.Written()))
+	}
+
+	// verify that mutating the returned slice does not affect the body
+	data := resp.Written()
+	data[0] = 'x'
+	if string(resp.Written()) != "hello" {
+		t.Fatalf("Written should return a copy; mutation must not affect body, got %q", string(resp.Written()))
+	}
+
+	resp.WriteString(" world")
+	if string(resp.Written()) != "hello world" {
+		t.Fatalf("expected Written 'hello world', got %q", string(resp.Written()))
+	}
+}

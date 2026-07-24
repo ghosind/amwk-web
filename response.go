@@ -77,24 +77,10 @@ func (resp *Response) Headers() http.Header {
 	return resp.headers
 }
 
-// Write writes the given data to the response body. It appends the data to any existing content in
-// the body. It returns the number of bytes written and any error encountered during the write
-// operation.
-func (resp *Response) Write(data []byte) (int, error) {
-	if len(data) == 0 {
-		return 0, nil
-	}
-
-	maxBytes := resp.maxBodyBytes.Load()
-
-	if maxBytes == MaxResponseBodyBytesUnlimited {
-		return resp.body.Write(data)
-	}
-
-	if int64(resp.body.Len())+int64(len(data)) > maxBytes {
-		return 0, ErrResponseTooLarge
-	}
-	return resp.body.Write(data)
+// Size returns the current size of the response body in bytes. This allows you to check how much data
+// has been written to the response body before sending it back to the client.
+func (resp *Response) Size() int {
+	return resp.body.Len()
 }
 
 // Status sets the HTTP status code for the response. This method allows you to specify the status
@@ -109,6 +95,43 @@ func (resp *Response) Status(code int) {
 // when the response is sent.
 func (resp *Response) StatusCode() int {
 	return resp.statusCode
+}
+
+// Write writes the given data to the response body. It appends the data to any existing content in
+// the body. It returns the number of bytes written and any error encountered during the write
+// operation.
+func (resp *Response) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+
+	if err := resp.checkBodySize(len(data)); err != nil {
+		return 0, err
+	}
+	return resp.body.Write(data)
+}
+
+// WriteString writes the given string data to the response body. It appends the string to any
+// existing content in the body. It returns the number of bytes written and any error encountered
+// during the write operation.
+func (resp *Response) WriteString(data string) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+
+	if err := resp.checkBodySize(len(data)); err != nil {
+		return 0, err
+	}
+	return resp.body.WriteString(data)
+}
+
+// Written returns the current content of the response body as a byte slice. It creates a copy of
+// the underlying buffer to ensure that the returned data is not modified externally.
+func (resp *Response) Written() []byte {
+	data := resp.body.Bytes()
+	copied := make([]byte, len(data))
+	copy(copied, data)
+	return copied
 }
 
 // Response returns the underlying http.ResponseWriter associated with this Response. This can be
@@ -151,5 +174,20 @@ func (resp *Response) send() error {
 		resp.body.Reset()
 	}
 
+	return nil
+}
+
+// checkBodySize checks if the size of the response body exceeds the maximum allowed size. If the
+// size exceeds the limit, it returns an error indicating that the response body is too large.
+func (resp *Response) checkBodySize(size int) error {
+	maxBytes := resp.maxBodyBytes.Load()
+
+	if maxBytes == MaxResponseBodyBytesUnlimited {
+		return nil
+	}
+
+	if int64(resp.body.Len())+int64(size) > maxBytes {
+		return ErrResponseTooLarge
+	}
 	return nil
 }
